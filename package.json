@@ -2,7 +2,7 @@
   "name": "lingofile",
   "displayName": "LingoFile — Large File Linguistic Viewer",
   "description": "View, decode, and analyse large text files — languages, scripts, encodings, zones.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "gorom",
   "license": "MIT",
   "repository": {
