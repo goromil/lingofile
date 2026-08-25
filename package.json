@@ -1,0 +1,161 @@
+{
+  "name": "lingofile",
+  "displayName": "LingoFile — Large File Linguistic Viewer",
+  "description": "View, decode, and analyse large text files — languages, scripts, encodings, zones.",
+  "version": "0.2.0",
+  "publisher": "gorom",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "files": [
+    "out"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "lingofile.open",
+        "title": "Open Large File",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "lingofile.openActive",
+        "title": "Open Active File"
+      },
+      {
+        "command": "lingofile.previewFile",
+        "title": "Preview File",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "lingofile.focusSearch",
+        "title": "Focus Search",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.focusOffset",
+        "title": "Go To Offset",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.toggleWrap",
+        "title": "Toggle Wrap",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.reloadChunk",
+        "title": "Reload Chunk",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.nextPage",
+        "title": "Next Page",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.prevPage",
+        "title": "Previous Page",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.abortOperation",
+        "title": "Abort Operation",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.toggleSlider",
+        "title": "Toggle Position Slider",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.analyseChunk",
+        "title": "Analyse Chunk",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.analyseZones",
+        "title": "Analyse Zones (Fast)",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.analyseZonesFull",
+        "title": "Analyse Zones (Full)",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.saveMeta",
+        "title": "Save Analysis (Metafile)",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.loadMeta",
+        "title": "Load Metafile",
+        "category": "LingoFile"
+      },
+      {
+        "command": "lingofile.jumpZone",
+        "title": "Jump to Zone",
+        "category": "LingoFile"
+      }
+    ],
+    "keybindings": [
+      { "command": "lingofile.focusSearch", "key": "ctrl+f", "when": "lingofile.active" },
+      { "command": "lingofile.focusOffset", "key": "ctrl+g", "when": "lingofile.active" },
+      { "command": "lingofile.toggleWrap", "key": "alt+z", "when": "lingofile.active" },
+      { "command": "lingofile.reloadChunk", "key": "f5", "when": "lingofile.active" },
+      { "command": "lingofile.nextPage", "key": "pagedown", "when": "lingofile.active" },
+      { "command": "lingofile.prevPage", "key": "pageup", "when": "lingofile.active" },
+      { "command": "lingofile.abortOperation", "key": "escape", "when": "lingofile.active" },
+      { "command": "lingofile.toggleSlider", "key": "ctrl+shift+s", "when": "lingofile.active" },
+      { "command": "lingofile.analyseChunk", "key": "ctrl+shift+a", "when": "lingofile.active" },
+      { "command": "lingofile.analyseZones", "key": "ctrl+shift+z", "when": "lingofile.active" },
+      { "command": "lingofile.saveMeta", "key": "ctrl+shift+m", "when": "lingofile.active" }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "lingofile.previewFile",
+          "when": "resourceScheme == file",
+          "group": "lingofile@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "lingofile.previewFile",
+          "when": "resourceScheme == file",
+          "group": "lingofile@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./",
+    "compile": "tsc -p ./ && node -e \"require('fs').copyFileSync('src/webview.html','out/webview.html')\"",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && npx mocha --ui tdd out/test/utils.test.js",
+    "test:vscode": "npm run compile && node ./out/test/runTest.js",
+    "coverage": "npm run compile && npx c8 --reporter=lcov --reporter=text npx mocha --ui tdd out/test/utils.test.js"
+  },
+  "devDependencies": {
+    "@types/iconv-lite": "^0.0.1",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.19.43",
+    "@types/vscode": "^1.74.0",
+    "@vscode/test-electron": "^2.3.0",
+    "c8": "^9.0.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "franc-min": "^6.2.0",
+    "iconv-lite": "^0.7.3"
+  }
+}

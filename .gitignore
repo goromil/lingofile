@@ -1,0 +1,9 @@
+node_modules/
+out/
+*.vsix
+.DS_Store
+coverage/
+testfiles/
+
+#opencode sessions
+session-ses*.md
