@@ -1,0 +1,11 @@
+.git
+.gitignore
+.vscode
+src/
+coverage/
+package-lock.json
+tsconfig.json
+session-ses_fcb7.md
+.agents/
+.opencode/
+AGENTS.md

@@ -2,8 +2,22 @@
   "name": "lingofile",
   "displayName": "LingoFile — Large File Linguistic Viewer",
   "description": "View, decode, and analyse large text files — languages, scripts, encodings, zones.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "gorom",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/goromil/lingofile"
+  },
+  "keywords": [
+    "large-file",
+    "encoding",
+    "language-detection",
+    "script-analysis",
+    "zone-scan",
+    "hex-viewer",
+    "text-analysis"
+  ],
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -12,7 +26,8 @@
     "workspace"
   ],
   "files": [
-    "out"
+    "out",
+    "node_modules"
   ],
   "categories": [
     "Other"

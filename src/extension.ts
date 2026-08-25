@@ -57,8 +57,11 @@ export class LingoFilePanel {
 
   public static render(extensionUri: vscode.Uri, filePath: string): LingoFilePanel {
     if (LingoFilePanel.currentPanel) {
-      LingoFilePanel.currentPanel.panel.reveal(vscode.ViewColumn.One);
-      return LingoFilePanel.currentPanel;
+      if (LingoFilePanel.currentPanel.state.filePath === filePath) {
+        LingoFilePanel.currentPanel.panel.reveal(vscode.ViewColumn.One);
+        return LingoFilePanel.currentPanel;
+      }
+      LingoFilePanel.currentPanel.dispose();
     }
     const panel = vscode.window.createWebviewPanel("lingofile", `LingoFile: ${path.basename(filePath)}`, vscode.ViewColumn.One, {
       enableScripts: true, retainContextWhenHidden: true,
@@ -171,7 +174,7 @@ export class LingoFilePanel {
         fileSize: this.state.fileSize, encoding: usedEncoding,
         rejected: !isReadable, lines: escapedLines, startLine: this.state.startLine,
         decodedEncoding: usedEncoding !== this.state.encoding ? usedEncoding : null,
-        rawText: rawText,
+        ...(this.state.viewMode === "raw" ? { rawText } : {}),
       });
       if (this.state.viewMode === "hex") await this.hexDump(offset);
     } catch (err: any) {
@@ -203,6 +206,8 @@ export class LingoFilePanel {
     try {
       const matches: number[] = [];
       const q = query.toLowerCase();
+      const qLen = q.length;
+      let lastQByteLen = 0;
       let pos = 0;
       let lastProgress = 0;
       while (pos < this.state.fileSize && matches.length < 100) {
@@ -215,10 +220,17 @@ export class LingoFilePanel {
         let idx = 0;
         while ((idx = text.indexOf(q, idx)) !== -1) {
           if (matches.length >= 100) break;
-          matches.push(pos + idx);
+          let byteOff: number;
+          try { byteOff = iconv.encode(text.substring(0, idx), this.state.encoding).length; }
+          catch { byteOff = idx; }
+          matches.push(pos + byteOff);
           idx++;
         }
-        pos += readSize;
+        let qByteLen: number;
+        try { qByteLen = iconv.encode(q, this.state.encoding).length; }
+        catch { qByteLen = qLen; }
+        lastQByteLen = qByteLen;
+        pos += Math.max(1, readSize - lastQByteLen);
         const progress = Math.round((pos / this.state.fileSize) * 100);
         if (progress !== lastProgress) { lastProgress = progress; this.post("searchProgress", { progress }); }
       }
@@ -305,7 +317,7 @@ export class LingoFilePanel {
           if (r) scans.push(r);
         }
 
-        lastProgress = Math.round(((i + batch.length) / offsets.length) * 100);
+        lastProgress = Math.min(100, Math.round(((i + batch.length) / offsets.length) * 100));
       }
       clearInterval(progressInterval);
       clearTimeout(timeout);

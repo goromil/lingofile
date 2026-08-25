@@ -555,6 +555,7 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
     for(var i=0;i<matches.length;i++) h+='<div class="mi" data-offset="'+matches[i]+'">'+(i+1)+': '+fmtNum(matches[i])+'</div>';
     sr.innerHTML=h;
   }
+  $('search-results').addEventListener('click',function(ev){var t=ev.target;if(t&&t.classList.contains('mi')){var off=parseInt(t.getAttribute('data-offset'));if(!isNaN(off)){state.sequential=false;loadChunk(off);}}});
 
   // ========== EVENT BINDINGS ==========
   $('btn-go').onclick=function(){var off=parseInt($('jump-offset').value);if(!isNaN(off)&&off>=0){state.sequential=false;loadChunk(off);}};
@@ -635,7 +636,7 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
           var gtext2='', thtml2='';
           for(var i2=0;i2<rawLines.length;i2++){
             gtext2+=(sl2+i2)+'\n';
-            var t2=escapeHtml(rawLines[i2]);
+            var t2=esc(rawLines[i2]);
             if(state.searchQuery) t2=highlightText(t2,state.searchQuery);
             thtml2+=t2+'\n';
           }
