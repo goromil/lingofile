@@ -264,33 +264,48 @@ export class LingoFilePanel {
       if (!controller.signal.aborted) this.post("scanProgress", { progress: lastProgress, label });
     }, 300);
     try {
+      // Build list of offsets to scan
+      const offsets: number[] = [];
+      for (let pos = 0; pos < this.state.fileSize; pos += step) {
+        offsets.push(pos);
+      }
+
+      // Parallel read pool: dispatch reads in batches of ZONE_CONCURRENCY
+      const ZONE_CONCURRENCY = 8;
       const scans: ChunkScan[] = [];
-      let pos = 0;
-      while (pos < this.state.fileSize) {
+
+      for (let i = 0; i < offsets.length; i += ZONE_CONCURRENCY) {
         if (controller.signal.aborted) { clearInterval(progressInterval); clearTimeout(timeout); return; }
-        const raw = await this.readFileRange(pos, ZONE_WINDOW);
-        if (raw.length === 0) break;
-        const probe = probeEncoding(raw);
-        const enc = probe.length > 0 && probe[0].badPct < 30 ? probe[0].name : "utf-8";
-        const text = iconv.decode(raw, enc).toString();
-        const lang = detectLanguage(text);
-        const scripts = detectScripts(text);
-        const script = dominantScript(scripts);
-        const scriptTotal = Object.values(scripts).reduce((a, b) => a + b, 0);
-        const scriptPct = scriptTotal > 0 ? Math.round((scripts[script] || 0) / scriptTotal * 100) / 100 : 0;
-        const stats = chunkStats(raw, text);
-        scans.push({
-          offset: pos,
-          encoding: enc,
-          language: lang.code,
-          langConfidence: lang.confidence,
-          script: script || "Binary",
-          scriptPct,
-          readablePct: stats ? stats.printablePct : 0,
-          isReadable: stats ? stats.isReadable : false,
-        });
-        pos += step;
-        lastProgress = Math.round((pos / this.state.fileSize) * 100);
+
+        const batch = offsets.slice(i, i + ZONE_CONCURRENCY);
+        const results = await Promise.all(batch.map(async (pos) => {
+          const raw = await this.readFileRange(pos, ZONE_WINDOW);
+          if (raw.length === 0) return null;
+          const probe = probeEncoding(raw);
+          const enc = probe.length > 0 && probe[0].badPct < 30 ? probe[0].name : "utf-8";
+          const text = iconv.decode(raw, enc).toString();
+          const lang = detectLanguage(text);
+          const scripts = detectScripts(text);
+          const script = dominantScript(scripts);
+          const scriptTotal = Object.values(scripts).reduce((a, b) => a + b, 0);
+          const scriptPct = scriptTotal > 0 ? Math.round((scripts[script] || 0) / scriptTotal * 100) / 100 : 0;
+          const stats = chunkStats(raw, text);
+          return {
+            offset: pos,
+            encoding: enc,
+            language: lang.code,
+            langConfidence: lang.confidence,
+            script: script || "Binary",
+            scriptPct,
+            readablePct: stats ? stats.printablePct : 0,
+            isReadable: stats ? stats.isReadable : false,
+          } as ChunkScan;
+        }));
+        for (const r of results) {
+          if (r) scans.push(r);
+        }
+
+        lastProgress = Math.round(((i + batch.length) / offsets.length) * 100);
       }
       clearInterval(progressInterval);
       clearTimeout(timeout);
