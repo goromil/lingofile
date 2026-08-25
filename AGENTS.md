@@ -22,7 +22,23 @@ npm run compile      # TypeScript compile + copy webview.html
 npm test             # 91 unit tests
 npm run coverage     # c8 coverage report
 npm run test:vscode  # VS Code integration tests
+npx vsce package     # Build .vsix for marketplace upload
 ```
+
+## Version Bump Checklist
+
+The version number lives in **4 files** — bump all before packaging:
+
+| File | Location | Auto? |
+|------|----------|-------|
+| `package.json` | `"version"` | No (source of truth) |
+| `package-lock.json` | root `"version"` + `""` package | `npm version X.Y.Z --no-git-tag-version` |
+| `.vscode/launch.json` | `"version"` | No |
+| `src/extension.ts` | `tool: \`lingofile@X.Y.Z\`` (line ~331) | No |
+
+After bumping: `npm run compile && npm test && npx vsce package`
+
+Upload `.vsix` at https://marketplace.visualstudio.com/manage/extensions
 
 ## Architecture
 

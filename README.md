@@ -35,14 +35,32 @@ View, decode, and analyse large text files — detect languages, scripts, encodi
 | `lingofile.saveMeta` | `Ctrl+Shift+M` | Save zone analysis to metafile |
 | `lingofile.loadMeta` | — | Load metafile |
 
-## Development
+## Building & Publishing
 
 ```bash
-npm run compile    # Compile TypeScript
-npm test           # Run unit tests (91 tests)
-npm run coverage   # Run tests with coverage (lcov + text report)
-npm run watch      # Watch mode
+npm run compile     # Compile TypeScript, copy webview.html
+npm test            # Run unit tests (91 tests)
+npm run coverage    # Coverage report (lcov + text)
+npx vsce package    # Build .vsix for marketplace upload
 ```
+
+### Version Bump
+
+The version number appears in **4 files** — all must be updated together:
+
+| File | Location | Purpose |
+|------|----------|---------|
+| `package.json` | `"version"` | Source of truth, used by `vsce` |
+| `package-lock.json` | root `"version"` + `""` package | Auto-updated by `npm version` or `npm install` |
+| `.vscode/launch.json` | `"version"` | Launch config metadata |
+| `src/extension.ts` | `tool: \`lingofile@X.Y.Z\`` | Tool attribution in analysis output |
+
+### Publishing to VS Code Marketplace
+
+1. Bump version in all 4 files above
+2. `npx vsce package` → produces `lingofile-X.Y.Z.vsix`
+3. Upload `.vsix` at https://marketplace.visualstudio.com/manage/extensions
+4. Users receive auto-update within ~24 hours
 
 ### Test Coverage
 
