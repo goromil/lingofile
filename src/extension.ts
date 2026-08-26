@@ -5,8 +5,9 @@ import * as iconv from "iconv-lite";
 import {
   CHUNK_SIZE, HEX_DUMP_SIZE, SEARCH_WINDOW, SCAN_STEP, ZONE_FAST_STEP, ZONE_FULL_STEP, ZONE_WINDOW,
   chunkStats, escapeHtml, hexDump, analyseChunk, filterText, probeEncoding,
-  detectLanguage, detectScripts, dominantScript, formatSize,
-  ChunkScan, ZoneEntry, Metafile, ZoneSummary, analyseZoneScan, computeZoneSummary,
+  detectLanguage, detectScripts, dominantScript, getLanguageName, formatSize,
+  ChunkScan, ZoneEntry, Metafile, ZoneSummary, analyseZoneScan, fillZoneGaps, computeZoneSummary,
+  ReadStats, createReadStats, runningMean, runningStddev,
 } from "./utils";
 
 const ABORT_TIMEOUT = 120000;
@@ -29,6 +30,11 @@ interface BackendState {
   encoding: string;
   wrapEnabled: boolean;
   metafile: Metafile | null;
+  readStats: ReadStats | null;
+  hddrActive: boolean;
+  spreadActive: boolean;
+  benchCV: number | undefined;
+  indicationIsSane: boolean;
 }
 
 export class LingoFilePanel {
@@ -45,6 +51,8 @@ export class LingoFilePanel {
       sequential: true, viewMode: "text", skipMode: "off",
       loadSeq: 0, scanController: null, encoding: "utf-8",
       wrapEnabled: true, metafile: null,
+      readStats: null, hddrActive: false, spreadActive: false,
+      benchCV: undefined, indicationIsSane: true,
     };
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.onDidChangeViewState(e => { if (e.webviewPanel.viewColumn === undefined) this.dispose(); }, null, this.disposables);
@@ -74,9 +82,8 @@ export class LingoFilePanel {
       const st = fs.statSync(this.state.filePath);
       this.state.fileSize = st.size;
       this.state.fd = fs.openSync(this.state.filePath, "r");
-      const initProbe = probeEncoding(await this.readFileRange(0, 64));
-      if (initProbe.length > 0 && initProbe[0].badPct === 0) this.state.encoding = initProbe[0].name;
-      else if (initProbe.length > 0 && initProbe[0].badPct < 30) this.state.encoding = initProbe[0].name;
+      // Always display as UTF-8; probe is for stats/filtering only
+      this.state.encoding = "utf-8";
       this.post("fileInfo", { name: path.basename(this.state.filePath), size: this.state.fileSize });
       this.sendTheme();
       this.post("wrap", { enabled: this.state.wrapEnabled });
@@ -121,6 +128,14 @@ export class LingoFilePanel {
       case "analyseZones": await this.runZoneScan("fast"); break;
       case "analyseZonesFull": await this.runZoneScan("full"); break;
       case "saveMeta": await this.saveMetafile(); break;
+      case "jumpZone": this.jumpToZone(msg.zone); break;
+      case "setConcurrency": {
+        const v = msg.concurrency;
+        if ([1, 2, 8].includes(v)) {
+          vscode.workspace.getConfiguration("lingofile").update("zoneScanConcurrency", v, true);
+        }
+        break;
+      }
     }
   }
 
@@ -137,13 +152,15 @@ export class LingoFilePanel {
         this.post("chunk", { data: "[End of file]", offset, size: 0, stats: null, fileSize: this.state.fileSize, encoding: this.state.encoding, rejected: false, lines: [], startLine: this.state.startLine });
         return;
       }
-      const text = iconv.decode(raw, this.state.encoding).toString();
+      // Always decode as UTF-8 first; probe is for stats only
+      const text = iconv.decode(raw, "utf-8").toString();
       const stats = chunkStats(raw, text);
-      let usedEncoding = this.state.encoding;
+      let usedEncoding = "utf-8";
       let rawText = text;
+      // Only try alternate encoding if UTF-8 has >5% replacement chars
       if (stats && stats.replacedPct > 5) {
         const best = stats.bestEncoding;
-        if (best && best !== this.state.encoding) {
+        if (best && best !== "utf-8") {
           try {
             const altText = iconv.decode(raw, best).toString();
             if ((altText.match(/\ufffd/g) || []).length < raw.length * 0.05) {
@@ -263,57 +280,65 @@ export class LingoFilePanel {
 
   // ---- Zone analysis ----
 
-  public async runZoneScan(mode: "fast" | "full"): Promise<void> {
+   public async runZoneScan(mode: "fast" | "full"): Promise<void> {
     if (this.state.fd === null) return;
     this.cancelScan();
+    this.clearHddr();
+    this.state.readStats = createReadStats();
     const controller = new AbortController();
     this.state.scanController = controller;
     const timeout = setTimeout(() => controller.abort(), ABORT_TIMEOUT);
     const step = mode === "fast" ? ZONE_FAST_STEP : ZONE_FULL_STEP;
     const label = mode === "fast" ? "Fast zone scan" : "Full zone scan";
+    const concurrency = this.getConfiguration().zoneScanConcurrency;
     let lastProgress = 0;
     const startTime = Date.now();
     const progressInterval = setInterval(() => {
       if (!controller.signal.aborted) this.post("scanProgress", { progress: lastProgress, label });
     }, 300);
     try {
-      // Build list of offsets to scan
       const offsets: number[] = [];
       for (let pos = 0; pos < this.state.fileSize; pos += step) {
         offsets.push(pos);
       }
 
-      // Parallel read pool: dispatch reads in batches of ZONE_CONCURRENCY
-      const ZONE_CONCURRENCY = 8;
       const scans: ChunkScan[] = [];
+      let skipped = 0;
 
-      for (let i = 0; i < offsets.length; i += ZONE_CONCURRENCY) {
+      for (let i = 0; i < offsets.length; i += concurrency) {
         if (controller.signal.aborted) { clearInterval(progressInterval); clearTimeout(timeout); return; }
 
-        const batch = offsets.slice(i, i + ZONE_CONCURRENCY);
+        const batch = offsets.slice(i, i + concurrency);
         const results = await Promise.allSettled(batch.map(async (pos) => {
           if (controller.signal.aborted) return null;
-          const raw = await this.readFileRange(pos, ZONE_WINDOW);
-          if (raw.length === 0) return null;
-          const probe = probeEncoding(raw);
-          const enc = probe.length > 0 && probe[0].badPct < 30 ? probe[0].name : "utf-8";
-          const text = iconv.decode(raw, enc).toString();
-          const lang = detectLanguage(text);
-          const scripts = detectScripts(text);
-          const script = dominantScript(scripts);
-          const scriptTotal = Object.values(scripts).reduce((a, b) => a + b, 0);
-          const scriptPct = scriptTotal > 0 ? Math.round((scripts[script] || 0) / scriptTotal * 100) / 100 : 0;
-          const stats = chunkStats(raw, text);
-          return {
-            offset: pos,
-            encoding: enc,
-            language: lang.code,
-            langConfidence: lang.confidence,
-            script: script || "Binary",
-            scriptPct,
-            readablePct: stats ? stats.printablePct : 0,
-            isReadable: stats ? stats.isReadable : false,
-          } as ChunkScan;
+          try {
+            const raw = await this.readFileRange(pos, ZONE_WINDOW);
+            if (raw.length === 0) return null;
+            // Minimal analysis: only script detection, no language, no full probe
+            const text = iconv.decode(raw, "utf-8").toString();
+            const scripts = detectScripts(text);
+            const script = dominantScript(scripts);
+            const scriptTotal = Object.values(scripts).reduce((a, b) => a + b, 0);
+            const scriptPct = scriptTotal > 0 ? Math.round((scripts[script] || 0) / scriptTotal * 100) / 100 : 0;
+            // Quick readability check (no heavy probe)
+            const replaced = (text.match(/\ufffd/g) || []).length;
+            const readablePct = Math.round(((raw.length - replaced) / raw.length) * 100);
+            const isReadable = replaced / raw.length < 0.5;
+            return {
+              offset: pos,
+              encoding: "utf-8",
+              language: "und",
+              langConfidence: 0,
+              script: script || "Binary",
+              scriptPct,
+              readablePct,
+              isReadable,
+            } as ChunkScan;
+          } catch (err: any) {
+            vscode.window.showWarningMessage(`Zone scan: skipped chunk at ${formatSize(pos)} — ${err?.message ?? "analysis error"}`);
+            skipped++;
+            return null;
+          }
         }));
         for (const r of results) {
           if (r.status === "fulfilled" && r.value) scans.push(r.value);
@@ -324,13 +349,44 @@ export class LingoFilePanel {
       clearInterval(progressInterval);
       clearTimeout(timeout);
       if (controller.signal.aborted) return;
-      const zones = analyseZoneScan(scans);
+      let zones = analyseZoneScan(scans, step);
+      // Fill gaps between zones so the map covers the entire file
+      zones = fillZoneGaps(zones, this.state.fileSize);
+      // Post-processing: detect language per zone (lightweight, 128 words max, parallel)
+      // Skip zones matching excludeScripts — no point running franc-min on them
+      const excludeScripts = this.getConfiguration().excludeScripts;
+      let langSkipped = 0;
+      const langConcurrency = 4;
+      for (let zi = 0; zi < zones.length; zi += langConcurrency) {
+        if (controller.signal.aborted) { clearInterval(progressInterval); clearTimeout(timeout); return; }
+        const batch = zones.slice(zi, zi + langConcurrency);
+        await Promise.allSettled(batch.map(async (z) => {
+          if (z.script === "Gap") {
+            return;
+          }
+          if (excludeScripts.includes(z.script)) {
+            z.label = `Skipped (${z.script})`;
+            langSkipped++;
+            return;
+          }
+          try {
+            const sample = await this.readFileRange(z.offset, 8 * 1024);
+            if (sample.length === 0) return;
+            const text = iconv.decode(sample, "utf-8").toString();
+            const lang = detectLanguage(text, 128);
+            z.language = lang.code;
+            z.languageConfidence = lang.confidence;
+            z.label = lang.code !== "und" ? `${getLanguageName(lang.code)} (${lang.confidence.toFixed(1)})` : z.script;
+          } catch { /* skip this zone */ }
+        }));
+        this.post("zoneLangUpdate", { zones, count: Math.min(zi + langConcurrency, zones.length), total: zones.length });
+      }
       const summary = computeZoneSummary(zones, this.state.fileSize);
       summary.scanDuration = Date.now() - startTime;
       const metaProbe = probeEncoding(await this.readFileRange(0, 64));
       this.state.metafile = {
         version: "1.0",
-        tool: `lingofile@0.2.8`,
+        tool: `lingofile@0.2.9`,
         created: new Date().toISOString(),
         file: { name: path.basename(this.state.filePath), size: this.state.fileSize, mtime: fs.statSync(this.state.filePath).mtimeMs },
         encoding: { primary: this.state.encoding, probe: metaProbe.slice(0, 4).map(e => ({ name: e.name, badPct: e.badPct })) },
@@ -338,12 +394,28 @@ export class LingoFilePanel {
         summary,
       };
       this.post("zonesDone", { zones, summary, mode });
-      vscode.window.showInformationMessage(`${label} complete: ${zones.length} zones found (${formatSize(this.state.fileSize)}).`);
+      this.reportReadErrors(label);
+      this.clearHddr();
+      const skipMsg = skipped > 0 ? ` (${skipped} chunks skipped)` : "";
+      const langSkipMsg = langSkipped > 0 ? ` (${langSkipped} lang skipped)` : "";
+      vscode.window.showInformationMessage(`${label} complete: ${zones.length} zones found (${formatSize(this.state.fileSize)})${skipMsg}${langSkipMsg}.`);
     } catch (err: any) {
       clearInterval(progressInterval);
       clearTimeout(timeout);
+      this.reportReadErrors(label);
+      this.clearHddr();
       vscode.window.showErrorMessage(`LingoFile: ${label} error: ${err?.message ?? String(err)}`);
     } finally { this.state.scanController = null; }
+  }
+
+  private reportReadErrors(label: string): void {
+    if (!this.state.readStats) return;
+    const errors = this.state.readStats.errors;
+    const keys = Object.keys(errors);
+    if (keys.length === 0) return;
+    const parts = keys.map(k => `${errors[k].count}× ${k}`).join(", ");
+    const slow = this.state.readStats.slowReads > 0 ? `, ${this.state.readStats.slowReads} slow-reads` : "";
+    vscode.window.showWarningMessage(`${label}: ${parts}${slow}`);
   }
 
   // ---- Metafile ----
@@ -434,6 +506,55 @@ export class LingoFilePanel {
     } finally { this.state.scanController = null; }
   }
 
+  // ---- Benchmark ----
+
+  public async runBenchmark(): Promise<void> {
+    if (this.state.fd === null) { vscode.window.showWarningMessage("No file open."); return; }
+    const N = 100;
+    const step = ZONE_FAST_STEP;
+    const window = ZONE_WINDOW;
+    const timings: number[] = [];
+    const controller = new AbortController();
+    this.state.scanController = controller;
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    try {
+      for (let i = 0; i < N && !controller.signal.aborted; i++) {
+        const off = (i * step) % this.state.fileSize;
+        const t0 = performance.now();
+        const raw = await this.readFileRange(off, window);
+        timings.push(performance.now() - t0);
+        if (raw.length === 0) break;
+      }
+      clearTimeout(timeout);
+      if (controller.signal.aborted) return;
+      if (timings.length < 10) { vscode.window.showWarningMessage("Benchmark: too few reads."); return; }
+      const mean = runningMean(timings);
+      const stddev = runningStddev(timings, mean);
+      const cv = mean > 0 ? stddev / mean : 0;
+      const threshold = mean + 3 * stddev;
+      const slowReads = timings.filter(t => t > threshold && stddev > 0).length;
+
+      // Calibrate health indicators from benchmark
+      this.state.benchCV = cv;
+      this.state.indicationIsSane = slowReads <= 6 * cv || cv < 0.1;
+
+      this.state.readStats = createReadStats();
+      this.state.readStats.timings = timings.slice(-100);
+      this.post("benchmark", {
+        mean: mean.toFixed(1), stddev: stddev.toFixed(1), cv: cv.toFixed(3),
+        slowReads, total: timings.length,
+        maxHealthyCV: this.maxHealthyCV.toFixed(3), sane: this.state.indicationIsSane,
+      });
+
+      const saneMsg = this.state.indicationIsSane ? "" : " ❌ indicators disabled (too many outliers)";
+      vscode.window.showInformationMessage(
+        `Benchmark: ${timings.length} reads | mean ${mean.toFixed(1)}ms | std ${stddev.toFixed(1)}ms | CV ${cv.toFixed(3)}${saneMsg} | >3σ ${slowReads} | maxHealthyCV=${this.maxHealthyCV.toFixed(3)}`
+      );
+    } finally {
+      this.state.scanController = null;
+    }
+  }
+
   // ---- View mode ----
 
   private changeViewMode(mode: ViewMode) {
@@ -458,11 +579,49 @@ export class LingoFilePanel {
     return new Promise((resolve, reject) => {
       if (this.state.fd === null) return reject(new Error("File not open"));
       const buf = Buffer.alloc(size);
+      const t0 = performance.now();
       fs.read(this.state.fd, buf, 0, size, offset, (err, bytesRead) => {
+        const elapsed = performance.now() - t0;
+        this.trackRead(elapsed, err, offset);
         if (err) reject(err);
         else resolve(buf.slice(0, bytesRead));
       });
     });
+  }
+
+  private trackRead(elapsed: number, err: NodeJS.ErrnoException | null, offset: number): void {
+    if (!this.state.readStats) return;
+    const stats = this.state.readStats;
+    stats.timings.push(elapsed);
+    if (stats.timings.length > 100) stats.timings.shift();
+    if (err) {
+      const code = err.code || err.message.slice(0, 30);
+      if (!stats.errors[code]) stats.errors[code] = { count: 0, lastMs: elapsed, offset };
+      stats.errors[code].count++;
+      stats.errors[code].lastMs = elapsed;
+      stats.errors[code].offset = offset;
+    }
+    if (stats.timings.length >= 10) {
+      const mean = runningMean(stats.timings);
+      const stddev = runningStddev(stats.timings, mean);
+      const cv = mean > 0 ? stddev / mean : 0;
+      const cfg = this.getConfiguration();
+
+      if (this.state.indicationIsSane) {
+        const threshold = mean + cfg.sigmaThreshold * cv * mean;
+        if (elapsed > threshold && cv > 0) {
+          stats.slowReads++;
+          if (!this.state.hddrActive) {
+            this.state.hddrActive = true;
+            this.post("hddr", { slowReads: stats.slowReads, mean: +mean.toFixed(1), stddev: +stddev.toFixed(1), threshold: +threshold.toFixed(1), cv: +cv.toFixed(3) });
+          }
+        }
+        if (cv > this.maxHealthyCV && !this.state.spreadActive) {
+          this.state.spreadActive = true;
+          this.post("spread", { cv: +cv.toFixed(3), mean: +mean.toFixed(1), stddev: +stddev.toFixed(1), maxHealthyCV: +this.maxHealthyCV.toFixed(3) });
+        }
+      }
+    }
   }
 
   // ---- Messaging ----
@@ -489,11 +648,39 @@ export class LingoFilePanel {
 
   public dispose() {
     this.cancelScan();
-    vscode.commands.executeCommand("setContext", "lingofile.active", false);
+    this.post("scanAborted");
+    this.clearHddr();
     if (this.state.fd !== null) { try { fs.closeSync(this.state.fd); } catch { /* already closed */ } this.state.fd = null; }
     this.panel.dispose();
     while (this.disposables.length) this.disposables.pop()?.dispose();
-    if (LingoFilePanel.currentPanel === this) LingoFilePanel.currentPanel = undefined;
+  }
+
+  private getConfiguration(): { zoneScanConcurrency: number; sigmaThreshold: number; defaultHealthyCV: number; excludeScripts: string[] } {
+    const cfg = vscode.workspace.getConfiguration("lingofile");
+    return {
+      zoneScanConcurrency: cfg.get<number>("zoneScanConcurrency", 2),
+      sigmaThreshold: cfg.get<number>("sigmaThreshold", 3),
+      defaultHealthyCV: cfg.get<number>("maxCv", 0.5),
+      excludeScripts: cfg.get<string[]>("zoneScanExcludeScripts", ["Binary"]),
+    };
+  }
+
+  private get healthyCV(): number {
+    return this.state.benchCV !== undefined ? this.state.benchCV : this.getConfiguration().defaultHealthyCV;
+  }
+
+  private get maxHealthyCV(): number {
+    return 2 * this.healthyCV;
+  }
+
+  private clearHddr(): void {
+    this.state.hddrActive = false;
+    this.state.spreadActive = false;
+    this.state.readStats = null;
+    this.state.benchCV = undefined;
+    this.state.indicationIsSane = true;
+    this.post("hddrClear", {});
+    this.post("spreadClear", {});
   }
 }
 
@@ -547,12 +734,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("lingofile.analyseZonesFull", () => { getPanel()?.runZoneScan("full"); }),
     vscode.commands.registerCommand("lingofile.saveMeta", () => { getPanel()?.saveMetafile(); }),
     vscode.commands.registerCommand("lingofile.loadMeta", () => { getPanel()?.loadMetafilePath(); }),
-    vscode.commands.registerCommand("lingofile.jumpZone", () => {
-      const p = getPanel();
-      if (!p?.metafile?.zones?.length) { vscode.window.showWarningMessage("No zones loaded. Run zone analysis first."); return; }
-      const items = p.metafile.zones.map(z => ({ label: `${z.label}`, description: `${formatSize(z.offset)} — ${formatSize(z.length)}`, zone: z }));
-      vscode.window.showQuickPick(items).then(item => { if (item?.zone) p.jumpToZone(item.zone); });
-    }),
+
+     vscode.commands.registerCommand("lingofile.runBenchmark", () => {
+       const p = getPanel();
+       if (p) p.runBenchmark();
+       else vscode.window.showWarningMessage("LingoFile panel not open.");
+     }),
   );
 }
 

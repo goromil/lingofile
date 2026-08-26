@@ -63,13 +63,17 @@ export interface ChunkScan {
 
 // --- Language detection ---
 
-export function detectLanguage(text: string): { code: string; confidence: number } {
+export function detectLanguage(text: string, maxWords: number = 128): { code: string; confidence: number } {
   if (!text || text.length < 10) return { code: "und", confidence: 0 };
+  // Limit to first N words — franc-min doesn't benefit from more
   const cleaned = filterText(text);
   if (cleaned.length < 10) return { code: "und", confidence: 0 };
+  const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+  const sample = words.slice(0, maxWords).join(" ");
+  if (sample.length < 10) return { code: "und", confidence: 0 };
   try {
-    const code = francMini(cleaned);
-    const confidence = getLanguageConfidence(cleaned, code);
+    const code = francMini(sample);
+    const confidence = getLanguageConfidence(sample, code);
     return { code, confidence };
   } catch {
     return { code: "und", confidence: 0 };
@@ -108,7 +112,7 @@ export function getLanguageName(code: string): string {
 
 // --- Zone analysis ---
 
-export function analyseZoneScan(scans: ChunkScan[]): ZoneEntry[] {
+export function analyseZoneScan(scans: ChunkScan[], step: number = ZONE_WINDOW): ZoneEntry[] {
   if (scans.length === 0) return [];
   const zones: ZoneEntry[] = [];
   let zoneId = 1;
@@ -120,25 +124,54 @@ export function analyseZoneScan(scans: ChunkScan[]): ZoneEntry[] {
     if (isSameZone(cur, s)) {
       zoneCount++;
     } else {
-      zones.push(makeZone(zoneId++, zoneOffset, zoneCount, cur));
+      zones.push(makeZone(zoneId++, zoneOffset, zoneCount, cur, step));
       cur = s;
       zoneOffset = s.offset;
       zoneCount = 1;
     }
   }
-  zones.push(makeZone(zoneId, zoneOffset, zoneCount, cur));
+  zones.push(makeZone(zoneId, zoneOffset, zoneCount, cur, step));
   return mergeAdjacentZones(zones);
+}
+
+/** Extend adjacent zones to cover gaps (skipped chunks from timeouts) so the map has no false gaps. */
+export function fillZoneGaps(zones: ZoneEntry[], fileSize: number): ZoneEntry[] {
+  if (zones.length === 0) return zones;
+  const result: ZoneEntry[] = [];
+  for (let i = 0; i < zones.length; i++) {
+    const z = zones[i];
+    if (i === 0) {
+      if (z.offset > 0) {
+        result.push({ ...z, offset: 0, length: z.length + z.offset });
+      } else {
+        result.push(z);
+      }
+    } else {
+      const prev = result[result.length - 1];
+      const prevEnd = prev.offset + prev.length;
+      if (prevEnd < z.offset) {
+        result[result.length - 1] = { ...prev, length: prev.length + (z.offset - prevEnd) };
+      }
+      result.push(z);
+    }
+  }
+  const last = result[result.length - 1];
+  const lastEnd = last.offset + last.length;
+  if (lastEnd < fileSize) {
+    result[result.length - 1] = { ...last, length: last.length + (fileSize - lastEnd) };
+  }
+  return result;
 }
 
 function isSameZone(a: ChunkScan, b: ChunkScan): boolean {
   return a.encoding === b.encoding && a.language === b.language && a.script === b.script;
 }
 
-function makeZone(id: number, offset: number, count: number, s: ChunkScan): ZoneEntry {
+function makeZone(id: number, offset: number, count: number, s: ChunkScan, step: number): ZoneEntry {
   return {
     id,
     offset,
-    length: count * ZONE_WINDOW,
+    length: (count - 1) * step + ZONE_WINDOW,
     encoding: s.encoding,
     language: s.language,
     languageConfidence: s.langConfidence,
@@ -231,7 +264,7 @@ export function chunkStats(rawBytes: Buffer, text: string): ChunkStats | null {
   const problemChars = replaced + control;
   const probe = probeEncoding(rawBytes);
   const bestEnc = probe.length > 0 && probe[0].badPct < 30 ? probe[0].name : "utf-8";
-  const lang = detectLanguage(text);
+  // Language detection suppressed — franc-min stalls on large chunks
   return {
     totalBytes: total, replaced, replacedPct: round(replaced / total * 100),
     control, controlPct: round(control / total * 100),
@@ -242,7 +275,7 @@ export function chunkStats(rawBytes: Buffer, text: string): ChunkStats | null {
     problemChars, problemPct: round(problemChars / total * 100),
     isReadable: (problemChars / total) < 0.5 && (printable / total) * 100 > 5,
     bestEncoding: bestEnc, encodingProbe: probe.slice(0, 4), scripts,
-    language: lang.code, languageConfidence: lang.confidence,
+    language: "und", languageConfidence: 0,
   };
 }
 
@@ -338,6 +371,7 @@ export function probeEncoding(raw: Buffer): { name: string; badPct: number; badC
   } catch { /* skip */ }
   const highBytes = raw.filter(b => b >= 0x80).length;
   const cjkRange = raw.filter(b => b >= 0x81 && b <= 0xFE).length;
+  // Only apply heuristics when UTF-8 has significant replacements
   if (highBytes > total * 0.1 && utf8Bad > total * 0.05) {
     for (const r of results) {
       if (r.name === "utf-8" && r.badPct > 5) r.badPct += 5;
@@ -505,4 +539,33 @@ export function isReadableChunk(text: string): boolean {
   const goodRatio = cleaned.length / text.length;
   const printable = [...text].filter(c => c !== "\ufffd" && isPrintable(c)).length;
   return goodRatio > 0.5 && (printable / text.length) * 100 > 5;
+}
+
+// --- Read timing & error tracking ---
+
+export interface ReadStats {
+  timings: number[];
+  errors: Record<string, { count: number; lastMs: number; offset: number }>;
+  slowReads: number;
+}
+
+export function createReadStats(): ReadStats {
+  return { timings: [], errors: {}, slowReads: 0 };
+}
+
+export function runningMean(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) sum += arr[i];
+  return sum / arr.length;
+}
+
+export function runningStddev(arr: number[], mean: number): number {
+  if (arr.length < 2) return 0;
+  let sumSq = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const d = arr[i] - mean;
+    sumSq += d * d;
+  }
+  return Math.sqrt(sumSq / arr.length);
 }

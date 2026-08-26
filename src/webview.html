@@ -51,6 +51,11 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
 #statusbar{height:20px;background:var(--statusbar);display:flex;align-items:center;padding:0 10px;font-size:10px;color:#fff;flex-shrink:0}
 #statusbar .sep{margin:0 8px;opacity:0.5}
 #statusbar .right{margin-left:auto}
+@keyframes blink {0%,45%{opacity:1}50%,100%{opacity:0.2}}
+#st-hddr{display:none;color:var(--orange);font-weight:bold;cursor:help}
+#st-hddr.active{display:inline;animation:blink 0.5s infinite}
+#st-spread{display:none;color:var(--yellow);font-weight:bold;cursor:help}
+#st-spread.active{display:inline;animation:blink 0.5s infinite}
 #file-scratch{display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(30,30,30,0.95);z-index:20;padding:20px;flex-direction:column;align-items:center;justify-content:center}
 #file-scratch.show{display:flex}
 #fs-wrap{width:90%;max-width:600px;margin:8px 0}
@@ -140,7 +145,6 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
         <div class="cr"><button id="btn-analyse">Analyse chunk</button></div>
         <div class="cr"><button id="btn-zones">Zones (fast)</button><button id="btn-zones-full">Zones (full)</button></div>
         <div class="cr"><button id="btn-save-meta">Save .meta</button><button id="btn-load-meta">Load .meta</button></div>
-        <div class="cr"><button id="btn-jump-zone">Jump zone...</button></div>
       </div>
       <div class="cg"><h3>Chunk Statistics</h3>
         <div id="stats-panel"><div class="sr"><span class="sl">Loading...</span></div></div>
@@ -175,8 +179,9 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
     <span id="st-encoding">UTF-8</span><span class="sep">|</span>
     <span id="st-lang">&mdash;</span><span class="sep">|</span>
     <span id="st-scripts">&mdash;</span>
-    <span class="right"><span id="st-viewmode">text</span><span class="sep">|</span><span id="st-readable"></span><span class="sep">|</span><span id="st-zones"></span><span class="sep">|</span><span id="st-opstatus"></span><button id="btn-abort-op" style="display:none;margin-left:4px;font-size:9px;padding:0 6px" class="warn">Stop</button></span>
+    <span class="right"><span id="st-viewmode">text</span><span class="sep">|</span><span id="st-readable"></span><span class="sep">|</span><span id="st-zones"></span><span class="sep">|</span><span id="st-hddr" title="Slow HDD reads detected">HDD-R</span><span class="sep">|</span><span id="st-spread" title="Read time spread warning">SPREAD</span><span class="sep">|</span><span id="st-opstatus"></span><button id="btn-abort-op" style="display:none;margin-left:4px;font-size:9px;padding:0 6px" class="warn">Stop</button></span>
     <button id="btn-slider" style="margin-left:8px;font-size:9px;padding:1px 4px" title="File position slider">&#8646;</button>
+    <button id="btn-concurrency" style="margin-left:4px;font-size:9px;padding:1px 4px" title="Zone scan concurrency: click to cycle 1→2→8">⚡2</button>
   </div>
 </div>
 <div id="file-scratch">
@@ -211,7 +216,7 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
 
   // Zone color palette
   var ZONE_COLORS = ['#007acc','#4ec9b0','#ce9178','#dcdcaa','#569cd6','#c586c0','#d16969','#6a9955','#56b6c2','#b267e6','#d7ba73','#75beff'];
-  function zoneColor(idx){ return ZONE_COLORS[idx % ZONE_COLORS.length]; }
+  function zoneColor(idx, zone){ return ZONE_COLORS[idx % ZONE_COLORS.length]; }
 
   // Loading overlay
   function showLoading(v, msg){ var el=$('loading'); el.className=v?'show':''; el.textContent=msg||'Loading...'; }
@@ -272,14 +277,14 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
       seg.className = 'zone-segment';
       seg.style.left = left + '%';
       seg.style.width = width + '%';
-      seg.style.background = zoneColor(i);
+      seg.style.background = zoneColor(i, z);
       seg.title = esc(z.label) + '\n' + fmtSize(z.offset) + ' - ' + fmtSize(z.offset + z.length) + ' (' + z.length + ' bytes)';
       seg.addEventListener('click', (function(zone){ return function(){ send('jumpZone', {zone: zone}); }; })(z));
       bar.appendChild(seg);
       var tag = document.createElement('span');
       tag.className = 'zone-tag';
-      tag.style.background = zoneColor(i) + '33';
-      tag.style.color = zoneColor(i);
+      tag.style.background = zoneColor(i, z) + '33';
+      tag.style.color = zoneColor(i, z);
       tag.textContent = z.label;
       tag.title = esc(z.label) + ' — ' + fmtSize(z.length);
       tag.addEventListener('click', (function(zone){ return function(){ send('jumpZone', {zone: zone}); }; })(z));
@@ -575,11 +580,18 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
   $('btn-abort-op').onclick=function(){send('abortScan',{});};
   $('btn-analyse').onclick=function(){send('analyse',{offset:state.currentOffset});};
   $('btn-slider').onclick=function(){var el=$('file-scratch');el.className=el.className==='show'?'':'show';updateSlider();};
+  var concValues=[1,2,8];
+  var concIdx=1;
+  $('btn-concurrency').onclick=function(){
+    concIdx=(concIdx+1)%concValues.length;
+    var v=concValues[concIdx];
+    $('btn-concurrency').textContent='\u26a1'+v;
+    send('setConcurrency',{concurrency:v});
+  };
   $('btn-zones').onclick=function(){send('analyseZones',{});};
   $('btn-zones-full').onclick=function(){send('analyseZonesFull',{});};
   $('btn-save-meta').onclick=function(){send('saveMeta',{});};
   $('btn-load-meta').onclick=function(){send('loadMeta',{});};
-  $('btn-jump-zone').onclick=function(){send('jumpZone',{});};
 
   $('skip-mode').onchange=function(){state.skipMode=this.value;send('setSkipMode',{mode:this.value});};
 
@@ -795,6 +807,11 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
         $('scan-bf').style.width=msg.progress+'%';
         setOpStatus('scan',msg.label||'Scanning',msg.progress);
         break;
+      case "zoneLangUpdate":
+        // Streaming update: languages resolving per zone batch
+        renderZoneMap(msg.zones);
+        setOpStatus('scan',msg.label||'Detecting languages...',Math.round(msg.count/msg.total*100));
+        break;
       case "zonesDone":
         $('scan-prog').style.display='none';
         $('scan-bar').style.display='none';
@@ -811,6 +828,24 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
         $('scan-prog').style.display='none';
         $('scan-bar').style.display='none';
         showLoading(false);clearOpStatus();break;
+      case "hddr": {
+        var h=$('st-hddr');
+        h.className='active';
+        h.title='Slow reads: '+msg.slowReads+' | mean: '+msg.mean+'ms | stddev: '+msg.stddev+'ms | threshold: '+msg.threshold+'ms';
+        break;
+      }
+      case "hddrClear":
+        $('st-hddr').className='';break;
+      case "spread": {
+        var s=$('st-spread');
+        s.className='active';
+        s.title='Read spread: CV='+msg.cv+' (max='+msg.maxCv+') | mean: '+msg.mean+'ms | stddev: '+msg.stddev+'ms';
+        break;
+      }
+      case "spreadClear":
+        $('st-spread').className='';break;
+      case "benchmark":
+        $('st-readable').textContent='bench: mean='+msg.mean+'ms std='+msg.stddev+'ms CV='+msg.cv+' >3σ='+msg.slowReads;break;
       case "metaLoaded":
         renderZoneMap(msg.zones);
         renderLangPanel(msg.summary);

@@ -4,7 +4,8 @@ import {
   byteToHex, hexRow, hexDump, probeEncoding, analyseChunk,
   findBadRanges, computeByteClasses, isReadableChunk,
   detectLanguage, detectScripts, dominantScript, getLanguageName,
-  analyseZoneScan, computeZoneSummary, ChunkScan, ZoneEntry,
+  analyseZoneScan, fillZoneGaps, computeZoneSummary, ChunkScan, ZoneEntry,
+  createReadStats, runningMean, runningStddev,
 } from "../utils";
 
 suite("Utils Tests", () => {
@@ -510,6 +511,14 @@ suite("Utils Tests", () => {
       const zones = analyseZoneScan(scans);
       assert.strictEqual(zones.length, 1);
       assert.strictEqual(zones[0].language, "eng");
+      assert.strictEqual(zones[0].length, 4 * 32768 + 32768); // (count-1)*step + window
+    });
+
+    test("zone length uses step size", () => {
+      const scans = Array.from({ length: 5 }, (_, i) => makeScan(i * 1048576, "utf-8", "eng", "Latin"));
+      const zones = analyseZoneScan(scans, 1048576);
+      assert.strictEqual(zones.length, 1);
+      assert.strictEqual(zones[0].length, 4 * 1048576 + 32768);
     });
 
     test("two zones for different languages", () => {
@@ -521,6 +530,7 @@ suite("Utils Tests", () => {
       ];
       const zones = analyseZoneScan(scans);
       assert.ok(zones.length >= 1);
+      assert.strictEqual(zones[0].length, 1 * 32768 + 32768); // (2-1)*32768 + 32768
     });
 
     test("zones have sequential IDs", () => {
@@ -539,6 +549,66 @@ suite("Utils Tests", () => {
       const scans = [makeScan(0, "utf-8", "eng", "Latin")];
       const zones = analyseZoneScan(scans);
       assert.ok(zones[0].label.includes("English"));
+    });
+
+    test("merges adjacent zones with same language/script but different encoding", () => {
+      const scans = [
+        makeScan(0, "utf-8", "eng", "Latin"),
+        makeScan(32768, "latin1", "eng", "Latin"),
+        makeScan(65536, "utf-8", "rus", "Cyrillic"),
+      ];
+      const zones = analyseZoneScan(scans);
+      assert.strictEqual(zones.length, 2);
+      assert.strictEqual(zones[0].language, "eng");
+    });
+  });
+
+  suite("fillZoneGaps", () => {
+    const makeZone = (id: number, offset: number, length: number): ZoneEntry => ({
+      id, offset, length, encoding: "utf-8",
+      language: "eng", languageConfidence: 0.9, script: "Latin", scriptPct: 0.95,
+      readablePct: 95, label: "English (Latin)",
+    });
+
+    test("returns empty for no zones", () => {
+      assert.strictEqual(fillZoneGaps([], 100000).length, 0);
+    });
+
+    test("extends first zone to start of file", () => {
+      const zones = [makeZone(1, 50000, 50000)];
+      const filled = fillZoneGaps(zones, 100000);
+      assert.strictEqual(filled.length, 1);
+      assert.strictEqual(filled[0].offset, 0);
+      assert.strictEqual(filled[0].length, 100000);
+    });
+
+    test("extends previous zone to cover gap between", () => {
+      const zones = [makeZone(1, 0, 30000), makeZone(2, 70000, 30000)];
+      const filled = fillZoneGaps(zones, 100000);
+      assert.strictEqual(filled.length, 2);
+      assert.strictEqual(filled[0].length, 70000); // 30000 + 40000 gap
+      assert.strictEqual(filled[1].offset, 70000);
+    });
+
+    test("extends last zone to EOF", () => {
+      const zones = [makeZone(1, 0, 60000)];
+      const filled = fillZoneGaps(zones, 100000);
+      assert.strictEqual(filled.length, 1);
+      assert.strictEqual(filled[0].length, 100000);
+    });
+
+    test("no changes when zones cover entire file", () => {
+      const zones = [makeZone(1, 0, 100000)];
+      const filled = fillZoneGaps(zones, 100000);
+      assert.strictEqual(filled.length, 1);
+      assert.strictEqual(filled[0].length, 100000);
+    });
+
+    test("clips zone end to fileSize", () => {
+      const zones = [makeZone(1, 0, 150000)];
+      const filled = fillZoneGaps(zones, 100000);
+      assert.strictEqual(filled.length, 1);
+      assert.strictEqual(filled[0].length, 150000); // already past EOF, no clip needed
     });
   });
 
@@ -583,6 +653,36 @@ suite("Utils Tests", () => {
       ];
       const summary = computeZoneSummary(zones, 200000);
       assert.strictEqual(summary.readablePct, 75);
+    });
+  });
+
+  suite("createReadStats", () => {
+    test("returns default stats", () => {
+      const stats = createReadStats();
+      assert.deepStrictEqual(stats.timings, []);
+      assert.deepStrictEqual(stats.errors, {});
+      assert.strictEqual(stats.slowReads, 0);
+    });
+  });
+
+  suite("runningMean", () => {
+    test("returns 0 for empty array", () => {
+      assert.strictEqual(runningMean([]), 0);
+    });
+
+    test("computes mean correctly", () => {
+      assert.strictEqual(runningMean([2, 4, 6]), 4);
+    });
+  });
+
+  suite("runningStddev", () => {
+    test("returns 0 for single element", () => {
+      assert.strictEqual(runningStddev([5], 5), 0);
+    });
+
+    test("computes population stddev", () => {
+      const arr = [2, 4, 6];
+      assert.strictEqual(runningStddev(arr, 4), 1.632993161855452);
     });
   });
 });
