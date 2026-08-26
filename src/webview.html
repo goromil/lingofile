@@ -759,7 +759,17 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
       case "toggleSlider":
         var el=$('file-scratch');el.className=el.className==='show'?'':'show';updateSlider();break;
       case "closeSlider": $('file-scratch').className='';break;
-      case "focusSearch": $('search-q').focus(); $('search-q').select(); break;
+      case "focusSearch": {
+        var sel=window.getSelection();
+        if(sel&&sel.toString().trim()){
+          $('search-q').value=sel.toString().trim();
+          send('search',{query:$('search-q').value,wholeFile:true});
+          $('search-q').focus();
+        } else {
+          $('search-q').focus();
+          $('search-q').select();
+        }
+      } break;
       case "focusOffset": $('jump-offset').focus(); $('jump-offset').select(); break;
     }
   });

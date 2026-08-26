@@ -2,7 +2,7 @@
   "name": "lingofile",
   "displayName": "LingoFile — Large File Linguistic Viewer",
   "description": "View, decode, and analyse large text files — languages, scripts, encodings, zones.",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "publisher": "gorom",
   "license": "MIT",
   "repository": {
@@ -122,17 +122,16 @@
       }
     ],
     "keybindings": [
-      { "command": "lingofile.focusSearch", "key": "ctrl+alt+f", "when": "lingofile.active" },
-      { "command": "lingofile.focusOffset", "key": "ctrl+alt+g", "when": "lingofile.active" },
-      { "command": "lingofile.toggleWrap", "key": "ctrl+alt+w", "when": "lingofile.active" },
+      { "command": "lingofile.focusSearch", "key": "ctrl+f", "when": "lingofile.active" },
+      { "command": "lingofile.focusOffset", "key": "ctrl+g", "when": "lingofile.active" },
+      { "command": "lingofile.toggleWrap", "key": "alt+z", "when": "lingofile.active" },
       { "command": "lingofile.reloadChunk", "key": "ctrl+alt+r", "when": "lingofile.active" },
-      { "command": "lingofile.nextPage", "key": "ctrl+alt+n", "when": "lingofile.active" },
-      { "command": "lingofile.prevPage", "key": "ctrl+alt+p", "when": "lingofile.active" },
+      { "command": "lingofile.nextPage", "key": "pagedown", "when": "lingofile.active" },
+      { "command": "lingofile.prevPage", "key": "pageup", "when": "lingofile.active" },
       { "command": "lingofile.abortOperation", "key": "escape", "when": "lingofile.active" },
       { "command": "lingofile.toggleSlider", "key": "ctrl+alt+l", "when": "lingofile.active" },
       { "command": "lingofile.analyseChunk", "key": "ctrl+alt+a", "when": "lingofile.active" },
-      { "command": "lingofile.analyseZones", "key": "ctrl+alt+z", "when": "lingofile.active" },
-      { "command": "lingofile.saveMeta", "key": "ctrl+alt+s", "when": "lingofile.active" }
+      { "command": "lingofile.analyseZones", "key": "ctrl+alt+z", "when": "lingofile.active" }
     ],
     "menus": {
       "explorer/context": [
