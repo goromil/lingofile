@@ -328,7 +328,7 @@ export class LingoFilePanel {
       const metaProbe = probeEncoding(await this.readFileRange(0, 64));
       this.state.metafile = {
         version: "1.0",
-        tool: `lingofile@0.2.5`,
+        tool: `lingofile@0.2.6`,
         created: new Date().toISOString(),
         file: { name: path.basename(this.state.filePath), size: this.state.fileSize, mtime: fs.statSync(this.state.filePath).mtimeMs },
         encoding: { primary: this.state.encoding, probe: metaProbe.slice(0, 4).map(e => ({ name: e.name, badPct: e.badPct })) },

@@ -21,18 +21,18 @@ View, decode, and analyse large text files — detect languages, scripts, encodi
 | `lingofile.open` | — | Open large file picker |
 | `lingofile.openActive` | — | Open active editor file |
 | `lingofile.previewFile` | — | Preview file from explorer/editor context menu |
-| `lingofile.focusSearch` | `Ctrl+F` | Focus search bar |
-| `lingofile.focusOffset` | `Ctrl+G` | Focus offset input |
-| `lingofile.toggleWrap` | `Alt+Z` | Toggle text wrapping |
-| `lingofile.reloadChunk` | `F5` | Reload current chunk |
-| `lingofile.nextPage` | `PageDown` | Next page |
-| `lingofile.prevPage` | `PageUp` | Previous page |
+| `lingofile.focusSearch` | `Ctrl+Alt+F` | Focus search bar |
+| `lingofile.focusOffset` | `Ctrl+Alt+G` | Focus offset input |
+| `lingofile.toggleWrap` | `Ctrl+Alt+W` | Toggle text wrapping |
+| `lingofile.reloadChunk` | `Ctrl+Alt+R` | Reload current chunk |
+| `lingofile.nextPage` | `Ctrl+Alt+N` | Next page |
+| `lingofile.prevPage` | `Ctrl+Alt+P` | Previous page |
 | `lingofile.abortOperation` | `Escape` | Abort current operation |
-| `lingofile.toggleSlider` | `Ctrl+Shift+S` | Toggle position slider |
-| `lingofile.analyseChunk` | `Ctrl+Shift+A` | Analyse current chunk |
-| `lingofile.analyseZones` | `Ctrl+Shift+Z` | Fast zone scan (1 MB steps) |
+| `lingofile.toggleSlider` | `Ctrl+Alt+L` | Toggle position slider |
+| `lingofile.analyseChunk` | `Ctrl+Alt+A` | Analyse current chunk |
+| `lingofile.analyseZones` | `Ctrl+Alt+Z` | Fast zone scan (1 MB steps) |
 | `lingofile.analyseZonesFull` | — | Full zone scan (64 KB steps) |
-| `lingofile.saveMeta` | `Ctrl+Shift+M` | Save zone analysis to metafile |
+| `lingofile.saveMeta` | `Ctrl+Alt+S` | Save zone analysis to metafile |
 | `lingofile.loadMeta` | — | Load metafile |
 
 ## Building & Publishing
