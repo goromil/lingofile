@@ -163,7 +163,9 @@
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && npx mocha --ui tdd out/test/utils.test.js",
     "test:vscode": "npm run compile && node ./out/test/runTest.js",
-    "coverage": "npm run compile && npx c8 --reporter=lcov --reporter=text npx mocha --ui tdd out/test/utils.test.js"
+    "coverage": "npm run compile && npx c8 --reporter=lcov --reporter=text npx mocha --ui tdd out/test/utils.test.js",
+    "build": "npm run compile && npm test",
+    "prepublish": "npx vsce package"
   },
   "devDependencies": {
     "@types/iconv-lite": "^0.0.1",
