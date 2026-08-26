@@ -291,7 +291,8 @@ export class LingoFilePanel {
         if (controller.signal.aborted) { clearInterval(progressInterval); clearTimeout(timeout); return; }
 
         const batch = offsets.slice(i, i + ZONE_CONCURRENCY);
-        const results = await Promise.all(batch.map(async (pos) => {
+        const results = await Promise.allSettled(batch.map(async (pos) => {
+          if (controller.signal.aborted) return null;
           const raw = await this.readFileRange(pos, ZONE_WINDOW);
           if (raw.length === 0) return null;
           const probe = probeEncoding(raw);
@@ -315,7 +316,7 @@ export class LingoFilePanel {
           } as ChunkScan;
         }));
         for (const r of results) {
-          if (r) scans.push(r);
+          if (r.status === "fulfilled" && r.value) scans.push(r.value);
         }
 
         lastProgress = Math.min(100, Math.round(((i + batch.length) / offsets.length) * 100));
