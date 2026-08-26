@@ -328,7 +328,7 @@ export class LingoFilePanel {
       const metaProbe = probeEncoding(await this.readFileRange(0, 64));
       this.state.metafile = {
         version: "1.0",
-        tool: `lingofile@0.2.2`,
+        tool: `lingofile@0.2.3`,
         created: new Date().toISOString(),
         file: { name: path.basename(this.state.filePath), size: this.state.fileSize, mtime: fs.statSync(this.state.filePath).mtimeMs },
         encoding: { primary: this.state.encoding, probe: metaProbe.slice(0, 4).map(e => ({ name: e.name, badPct: e.badPct })) },
@@ -507,14 +507,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("lingofile.openActive", () => {
       const doc = vscode.window.activeTextEditor?.document;
-      if (doc?.uri.scheme === "file") LingoFilePanel.render(context.extensionUri, doc.uri.fsPath);
+      if (doc?.uri.scheme === "file" || doc?.uri.scheme === "vscode-remote") LingoFilePanel.render(context.extensionUri, doc.uri.fsPath);
       else vscode.window.showErrorMessage("No active file.");
     }),
     vscode.commands.registerCommand("lingofile.previewFile", (uri: vscode.Uri) => {
-      if (uri?.scheme === "file") LingoFilePanel.render(context.extensionUri, uri.fsPath);
+      if (uri && (uri.scheme === "file" || uri.scheme === "vscode-remote")) LingoFilePanel.render(context.extensionUri, uri.fsPath);
       else {
         const doc = vscode.window.activeTextEditor?.document;
-        if (doc?.uri.scheme === "file") LingoFilePanel.render(context.extensionUri, doc.uri.fsPath);
+        if (doc && (doc.uri.scheme === "file" || doc.uri.scheme === "vscode-remote")) LingoFilePanel.render(context.extensionUri, doc.uri.fsPath);
         else vscode.window.showErrorMessage("No file to preview.");
       }
     }),

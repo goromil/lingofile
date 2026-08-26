@@ -2,7 +2,7 @@
   "name": "lingofile",
   "displayName": "LingoFile — Large File Linguistic Viewer",
   "description": "View, decode, and analyse large text files — languages, scripts, encodings, zones.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "gorom",
   "license": "MIT",
   "repository": {
@@ -138,15 +138,22 @@
       "explorer/context": [
         {
           "command": "lingofile.previewFile",
-          "when": "resourceScheme == file",
+          "when": "resourceScheme == file || resourceScheme == vscode-remote",
           "group": "lingofile@1"
         }
       ],
       "editor/context": [
         {
           "command": "lingofile.previewFile",
-          "when": "resourceScheme == file",
+          "when": "resourceScheme == file || resourceScheme == vscode-remote",
           "group": "lingofile@1"
+        }
+      ],
+      "editor/title/run": [
+        {
+          "command": "lingofile.openActive",
+          "group": "lingofile",
+          "when": "resourceScheme == file || resourceScheme == vscode-remote"
         }
       ]
     }
