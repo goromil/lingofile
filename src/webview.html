@@ -676,6 +676,7 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
         ta.style.display='none';gt.style.display='none';rv.style.display='none';
         hv.style.display='block';
         hv.textContent=msg.data;
+        $('jump-offset').value=msg.offset;
         updateSlider();showLoading(false);
         break;
       }

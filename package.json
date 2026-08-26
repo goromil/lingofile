@@ -2,7 +2,7 @@
   "name": "lingofile",
   "displayName": "LingoFile — Large File Linguistic Viewer",
   "description": "View, decode, and analyse large text files — languages, scripts, encodings, zones.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "gorom",
   "license": "MIT",
   "repository": {
@@ -47,7 +47,7 @@
       },
       {
         "command": "lingofile.previewFile",
-        "title": "Preview File",
+        "title": "Preview with LingoFile",
         "icon": "$(preview)"
       },
       {
