@@ -107,6 +107,7 @@ export class LingoFilePanel {
       case "skip": await this.loadChunk(Math.max(0, Math.min(msg.offset, this.state.fileSize - 1))); break;
       case "analyse": await this.analyseAt(msg.offset ?? this.state.currentOffset); break;
       case "setSkipMode": this.state.skipMode = msg.mode; this.post("skipMode", { mode: msg.mode }); break;
+      case "setWrap": this.state.wrapEnabled = msg.enabled; break;
       case "nextPage": await this.nextPage(); break;
       case "prevPage": await this.loadChunk(Math.max(0, this.state.currentOffset - CHUNK_SIZE)); break;
       case "goTop": this.state.sequential = false; await this.loadChunk(0); break;
@@ -328,7 +329,7 @@ export class LingoFilePanel {
       const metaProbe = probeEncoding(await this.readFileRange(0, 64));
       this.state.metafile = {
         version: "1.0",
-        tool: `lingofile@0.2.7`,
+        tool: `lingofile@0.2.8`,
         created: new Date().toISOString(),
         file: { name: path.basename(this.state.filePath), size: this.state.fileSize, mtime: fs.statSync(this.state.filePath).mtimeMs },
         encoding: { primary: this.state.encoding, probe: metaProbe.slice(0, 4).map(e => ({ name: e.name, badPct: e.badPct })) },

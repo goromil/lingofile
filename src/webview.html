@@ -195,7 +195,7 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
     searchMatches: [], searchQuery: '', searching: false, scanning: false,
     viewMode: 'text', skipMode: 'off', scanCancelled: false,
     stats: null, decodedEncoding: null, startLine: 1, sequential: true,
-    zones: [], zoneSummary: null, metafile: null,
+    zones: [], zoneSummary: null, metafile: null, wrapEnabled: true,
   };
 
   function $(id){ return document.getElementById(id); }
@@ -595,8 +595,66 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
     setup('btn-prev','prevPage');setup('btn-next','nextPage');
   })();
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (webview doesn't propagate to extension, must handle locally)
   document.addEventListener('keydown',function(e){
+    // Ctrl+G / Cmd+G → focus offset
+    if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==='g'){
+      e.preventDefault();e.stopPropagation();
+      $('jump-offset').focus();$('jump-offset').select();return;
+    }
+    // Ctrl+F / Cmd+F → focus search (copy selection if any)
+    if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==='f'){
+      e.preventDefault();e.stopPropagation();
+      var sel=window.getSelection();
+      if(sel&&sel.toString().trim()){
+        $('search-q').value=sel.toString().trim();
+        send('search',{query:$('search-q').value,wholeFile:true});
+      }
+      $('search-q').focus();$('search-q').select();return;
+    }
+    // Alt+Z → toggle wrap
+    if(e.altKey&&!e.ctrlKey&&!e.shiftKey&&e.key.toLowerCase()==='z'){
+      e.preventDefault();e.stopPropagation();
+      state.wrapEnabled=!state.wrapEnabled;
+      $('text-area').style.whiteSpace=state.wrapEnabled?'pre-wrap':'pre';
+      $('text-area').style.wordBreak=state.wrapEnabled?'break-all':'normal';
+      $('raw-view').style.whiteSpace=state.wrapEnabled?'pre-wrap':'pre';
+      send('setWrap',{enabled:state.wrapEnabled});
+      return;
+    }
+    // PageUp → prev page
+    if(e.key==='PageUp'&&!e.ctrlKey&&!e.altKey){
+      e.preventDefault();e.stopPropagation();
+      send('prevPage',{});return;
+    }
+    // PageDown → next page
+    if(e.key==='PageDown'&&!e.ctrlKey&&!e.altKey){
+      e.preventDefault();e.stopPropagation();
+      send('nextPage',{});return;
+    }
+    // Ctrl+Alt+R → reload
+    if(e.ctrlKey&&e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='r'){
+      e.preventDefault();e.stopPropagation();
+      send('loadChunk',{offset:state.currentOffset});return;
+    }
+    // Ctrl+Alt+L → toggle slider
+    if(e.ctrlKey&&e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='l'){
+      e.preventDefault();e.stopPropagation();
+      var el=$('file-scratch');el.className=el.className==='show'?'':'show';
+      if(el.className==='show')send('updateSlider',{});
+      return;
+    }
+    // Ctrl+Alt+A → analyse chunk
+    if(e.ctrlKey&&e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='a'){
+      e.preventDefault();e.stopPropagation();
+      send('analyse',{offset:state.currentOffset});return;
+    }
+    // Ctrl+Alt+Z → fast zone scan
+    if(e.ctrlKey&&e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='z'){
+      e.preventDefault();e.stopPropagation();
+      send('analyseZones',{});return;
+    }
+    // Escape → close panels, abort
     if(e.key==='Escape'){
       $('analyse-panel').className='';$('file-scratch').className='';$('meta-panel').className='';
       if(state.searching||state.scanning){send('abortScan',{});}
@@ -715,9 +773,11 @@ button.lang-btn:hover{background:var(--accent2);border-color:var(--accent)}
         $('tab-mode').textContent=msg.mode==='text'?'[filtered]':msg.mode==='hex'?'[hex]':'[raw]';
         break;
       case "wrap":
+        state.wrapEnabled=msg.enabled;
         var ta4=$('text-area');
         ta4.style.whiteSpace=msg.enabled?'pre-wrap':'pre';
         ta4.style.wordBreak=msg.enabled?'break-all':'normal';
+        $('raw-view').style.whiteSpace=msg.enabled?'pre-wrap':'pre';
         break;
       case "skipMode":
         state.skipMode=msg.mode;
